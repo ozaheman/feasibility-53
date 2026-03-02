@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Integrated Site Feasibility Engine</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- Library Imports -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://unpkg.com/dxf-parser@1.1.2/dist/dxf-parser.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js";
+    </script>
+    <!-- Local Stylesheet -->
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <div class="sidebar">
+        <h1>Feasibility Engine</h1>
+        <div class="control-group">
+            <h3>1. Project I/O</h3>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+                <label for="zip-upload" class="button warning"
+                    style="text-align:center; padding: 0; margin:0; cursor:pointer; display:flex; align-items:center; justify-content:center; height:56px; line-height:1.2;">Import
+                    Project (.zip)</label>
+                <input type="file" id="zip-upload" accept=".zip" style="display:none;">
+                <button id="export-zip-btn"
+                    style="height:56px; padding:0; margin:0; display:flex; align-items:center; justify-content:center; line-height:1.2;">Export
+                    Project (.zip)</button>
+            </div>
+        </div>
+        <div class="control-group">
+            <h3>2. Site Plan & Scale</h3>
+            <div class="button-grid" style="margin-bottom:10px;">
+                <label for="plan-upload" class="button"
+                    style="text-align:center; padding: 12px 0; margin-top:0; cursor:pointer;">Upload Plan</label>
+                <input type="file" id="plan-upload" accept=".png, .jpg, .jpeg, .pdf" style="display:none;">
+                <label for="dxf-upload" class="button"
+                    style="text-align:center; padding: 12px 0; margin-top:0; cursor:pointer;">Import DXF</label>
+                <input type="file" id="dxf-upload" accept=".dxf" style="display:none;">
+            </div>
+            <div id="pdf-controls" style="display:none;">
+                <label for="pdf-page">PDF Page:</label>
+                <input type="number" id="pdf-page" value="1" min="1">
+            </div>
+            <div id="scale-input-group" style="margin-top:10px;">
+                <label for="scale-distance">Known Distance (m)</label>
+                <input type="number" id="scale-distance" value="10" step="0.1" disabled>
+                <button id="set-scale-btn" disabled>Set Scale</button>
+            </div>
+            <div id="scale-display" style="font-size:0.8em; margin-top:5px;">Scale not set.</div>
+
+            <!-- DXF Overlay Controls Section -->
+            <div id="dxf-controls"
+                style="display:none; margin-top:10px; border-top: 1px solid #ccc; padding-top: 10px;">
+                <h4>DXF Overlay Controls</h4>
+                <div class="input-with-button">
+                    <label for="dxf-bg-color" style="display: inline-block; width: auto; margin-right: 10px;">Bg
+                        Color:</label>
+                    <input type="color" id="dxf-bg-color" value="#000000"
+                        style="width: 40px; padding: 0; height: 30px;">
+                    <input type="number" id="dxf-stroke-width" value="1" step="0.1" min="0.1">
+                    <button id="zoom-to-dxf-btn">Zoom to DXF</button>
+                </div>
+
+                <!-- NEW: Sidebar Layer Container -->
+                <div id="dxf-layers-container"
+                    style="max-height: 250px; overflow-y: auto; margin: 10px 0; border: 1px solid #ddd; border-radius: 4px; padding: 5px; background: #fdfdfd;">
+                    <div style="font-size: 0.8em; color: #666; text-align: center; padding: 10px;">Upload a DXF to
+                        manage layers.</div>
+                </div>
+
+                <div class="button-grid">
+                    <button id="assign-dxf-plot-btn" class="warning">Assign as Plot</button>
+                    <button id="finalize-dxf-btn">Finalize Guides</button>
+                    <button id="delete-dxf-btn" class="danger">Delete DXF</button>
+                </div>
+            </div>
+        </div>
+        <!-- ... Rest of sidebar from index.html ... -->
+    </div>
+    <!-- ... Content ... -->
+    <script type="module" src="main.js"></script>
+</body>
+
+</html>
