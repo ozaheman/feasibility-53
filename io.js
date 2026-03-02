@@ -145,13 +145,7 @@ function parseAndDisplayDxf(dxfText, makeSelectable = false) {
         state.canvas.add(group);
         state.canvas.centerObject(group);
         group.setCoords();
-      // NEW: Auto-set scale so that DXF native units can be correctly measured right out of the box.
-        if (state.scale.ratio === 0) {
-            setScale(autoScale, 1.0);
-            document.getElementById('status-bar').textContent = 'DXF imported. Scale auto-set based on DXF units. Check your measurements.';
-        } else {
-            document.getElementById('status-bar').textContent = 'DXF imported into existing scale. Manage layers for detailed editing.';
-        }
+
         state.canvas.renderAll();
         // Automatically set background to black on import
         state.canvas.setBackgroundColor('black', state.canvas.renderAll.bind(state.canvas));
@@ -301,7 +295,58 @@ function generateServiceBlocksCSVString() {
     });
     return csvContent;
 }
+// ==========================================================
+// NEW: Export Canvas Geometries to DXF Format
+// ==========================================================
+function generateDXFString(canvas, scaleRatio) {
+    let dxf = "  0\nSECTION\n  2\nENTITIES\n";
+    
+    canvas.getObjects().forEach(obj => {
+        if (obj.isDxfOverlay || obj.isSnapIndicator || obj.isEdgeHighlight) return;
+        
+        let layerName = "DEFAULT";
+        if (obj.isPlot) layerName = "PLOT";
+        else if (obj.isFootprint) layerName = `FOOTPRINT_${(obj.level || 'UNASSIGNED').toUpperCase()}`;
+        else if (obj.isGuide) layerName = "GUIDES";
+        else return; // Only process actual plot, footprint, or guide objects
+        
+        if (obj.type === 'polygon' || obj.type === 'polyline') {
+            const isClosed = obj.type === 'polygon' ? 1 : 0;
+            const matrix = obj.calcTransformMatrix();
+            
+            dxf += "  0\nLWPOLYLINE\n";
+            dxf += "  8\n" + layerName + "\n";
+            dxf += " 90\n" + obj.points.length + "\n";
+            dxf += " 70\n" + isClosed + "\n";
+            
+            obj.points.forEach(p => {
+                // Remove the internal pathOffset, then transform to get absolute canvas coords
+                const px = p.x - (obj.pathOffset?.x || 0);
+                const py = p.y - (obj.pathOffset?.y || 0);
+                const abs = fabric.util.transformPoint({ x: px, y: py }, matrix);
+                
+                const x = abs.x * scaleRatio;
+                const y = -abs.y * scaleRatio; // Invert Y for CAD systems
+                
+                dxf += " 10\n" + x.toFixed(6) + "\n 20\n" + y.toFixed(6) + "\n";
+            });
+        } else if (obj.type === 'line') {
+            // For straight guide lines
+            const x1 = obj.x1 * scaleRatio;
+            const y1 = -obj.y1 * scaleRatio;
+            const x2 = obj.x2 * scaleRatio;
+            const y2 = -obj.y2 * scaleRatio;
 
+            dxf += "  0\nLINE\n";
+            dxf += "  8\n" + layerName + "\n";
+            dxf += " 10\n" + x1.toFixed(6) + "\n 20\n" + y1.toFixed(6) + "\n";
+            dxf += " 11\n" + x2.toFixed(6) + "\n 21\n" + y2.toFixed(6) + "\n";
+        }
+    });
+    
+    dxf += "  0\nENDSEC\n  0\nEOF\n";
+    return dxf;
+}
 async function fileToBase64(file) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -385,7 +430,9 @@ export async function exportProjectZIP(canvas) {
     if (csvContent) {
         zip.file("service_block_schedule.csv", csvContent);
     }
-
+ // 5. Generate and add exported Geometry DXF (NEW FEATURE)
+    const dxfGeometry = generateDXFString(canvas, state.scale.ratio || 1);
+    zip.file("project_geometry.dxf", dxfGeometry);
     // 5. Generate and Download ZIP
     const content = await zip.generateAsync({ type: "blob" });
     downloadFile("project.zip", content, "application/zip");
