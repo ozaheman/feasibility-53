@@ -9,8 +9,8 @@ import { initUI, updateUI, applyLevelVisibility, updateLevelFootprintInfo, updat
 // REMOVED: import { exitAllModes, handleFinishPolygon, handleObjectModified, handleDblClick } from './eventHandlers.js';
 // IMPORT only what is needed, and NOT handleDblClick
 import { exitAllModes, handleFinishPolygon, handleFinishPolyline, handleObjectModified } from './eventHandlers.js';
-import { generateLinearParking } from './parkingLayoutUtils.js';
-import { PREDEFINED_BLOCKS, BLOCK_CATEGORY_COLORS } from '../config.js';
+import { generateLinearParking, regenerateParkingInGroup } from './parkingLayoutUtils.js';
+import { PREDEFINED_BLOCKS, BLOCK_CATEGORY_COLORS } from './config.js';
 
 import { layoutFlatsOnPolygon } from './apartmentLayout.js';
 window.snapIndicators = null;
@@ -595,9 +595,7 @@ export function finishScaling() {
     return null;
 }
 export function drawMeasurement(ctx, p1, endPoint) {
-    //if (!ctx || !p1 || !endPoint || state.scale.ratio === 0) return;
-      // NEW: Allow measuring even if scale ratio is 0
-    if (!ctx || !p1 || !endPoint) return;
+    if (!ctx || !p1 || !endPoint || state.scale.ratio === 0) return;
 
     const vpt = state.canvas.viewportTransform;
     ctx.save();
@@ -610,16 +608,9 @@ export function drawMeasurement(ctx, p1, endPoint) {
     ctx.strokeStyle = '#f50057';
     ctx.lineWidth = 2 / state.canvas.getZoom();
     ctx.stroke();
-      
-    // Calculate values and fallback to pixels if necessary
     const distPixels = Math.hypot(endPoint.x - p1.x, endPoint.y - p1.y);
-    const ratio = state.scale.ratio > 0 ? state.scale.ratio : 1;
-    const distVal = distPixels * ratio;
-    const unit = state.scale.ratio > 0 ? 'm' : 'px';
-    const text = `${distVal.toFixed(3)} ${unit}`;
-    //const distPixels = Math.hypot(endPoint.x - p1.x, endPoint.y - p1.y);
-    //const distMeters = distPixels * state.scale.ratio;
-   // const text = `${distMeters.toFixed(3)} m`;
+    const distMeters = distPixels * state.scale.ratio;
+    const text = `${distMeters.toFixed(3)} m`;
     const midX = (p1.x + endPoint.x) / 2;
     const midY = (p1.y + endPoint.y) / 2;
     ctx.font = `${14 / state.canvas.getZoom()}px sans-serif`;
@@ -821,12 +812,26 @@ export function makeFootprintUneditable(polygon) {
     polygon.controls = fabric.Object.prototype.controls;
     polygon.off('modified');
     polygon.set({
-        hasBorders: true, objectCaching: true,
-        hasControls: true, lockMovementX: false, lockMovementY: false,
-        lockScalingX: false, lockScalingY: false, lockRotation: false,
-        selectable: false, evented: false,
-    }).setCoords();
-    state.canvas.renderAll();
+        hasBorders: true,
+        objectCaching: true,
+        hasControls: true,
+        lockMovementX: false,
+        lockMovementY: false,
+        lockScalingX: false,
+        lockScalingY: false,
+        lockRotation: false,
+    });
+
+    // If it's a plot, always lock it after editing
+    if (polygon.isPlot) {
+        polygon.set({
+            selectable: false,
+            evented: false
+        });
+    }
+
+    polygon.setCoords();
+    state.canvas.requestRenderAll();
 }
 
 export function placeServiceBlock(pointer, blockKeyOrData, levelOverride = null) {
@@ -1234,4 +1239,138 @@ export function exitAlignmentMode() {
     // Restore visibility
     setGeometryVisibility(true);
     setBackgroundVisibility(true);
+}
+
+export function makeParkingEditable(group) {
+    if (!group || !group.isParkingRow) return;
+
+    // First ensure it's not scaled - we work with unscaled groups for parametric editing
+    const width = group.getScaledWidth();
+    group.set({
+        scaleX: 1,
+        scaleY: 1,
+        width: width,
+        originX: 'center',
+        originY: 'center',
+        hasControls: true,
+        lockScalingY: true,
+        lockRotation: true,
+        lockMovementX: true, // Don't move the whole location while editing handles
+        lockMovementY: true,
+        selectable: true,
+        evented: true,
+        cornerColor: '#ffc107',
+        cornerStyle: 'circle',
+        transparentCorners: false
+    });
+
+    const controls = {};
+
+    controls.start = new fabric.Control({
+        x: -0.5,
+        y: 0,
+        actionHandler: parkingHandleActionHandler,
+        cursorStyle: 'pointer',
+        actionName: 'parkingEditStart',
+        render: renderParkingHandle
+    });
+
+    controls.end = new fabric.Control({
+        x: 0.5,
+        y: 0,
+        actionHandler: parkingHandleActionHandler,
+        cursorStyle: 'pointer',
+        actionName: 'parkingEditEnd',
+        render: renderParkingHandle
+    });
+
+    group.controls = controls;
+    group.setCoords();
+    state.canvas.requestRenderAll();
+}
+
+export function makeParkingUneditable(group) {
+    if (!group) return;
+    group.controls = fabric.Object.prototype.controls;
+    group.set({
+        lockScalingY: true,
+        lockRotation: false,
+        lockMovementX: false,
+        lockMovementY: false,
+        hasControls: true
+    });
+    group.setCoords();
+    state.canvas.requestRenderAll();
+}
+
+function renderParkingHandle(ctx, left, top, styleOverride, fabricObject) {
+    const size = 24; // Slightly larger
+    ctx.save();
+    ctx.translate(left, top);
+    ctx.fillStyle = '#ffc107'; // Amber
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, size / 2, 0, 2 * Math.PI);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+}
+
+function parkingHandleActionHandler(eventData, transform, x, y) {
+    const group = transform.target;
+
+    // Capture the fixed point (the other handle) at the start of the interaction
+    if (!transform.otherPointAbs) {
+        const isStart = transform.corner === 'start';
+        const angleRad = group.angle * Math.PI / 180;
+        const halfWidth = group.width / 2;
+        const otherPointRel = { x: isStart ? halfWidth : -halfWidth, y: 0 };
+
+        transform.otherPointAbs = {
+            x: group.left + (otherPointRel.x * Math.cos(angleRad) - otherPointRel.y * Math.sin(angleRad)),
+            y: group.top + (otherPointRel.x * Math.sin(angleRad) + otherPointRel.y * Math.cos(angleRad))
+        };
+    }
+
+    const isStart = transform.corner === 'start';
+    const pointer = state.canvas.getPointer(eventData);
+    const otherPt = transform.otherPointAbs;
+
+    const p1 = isStart ? pointer : otherPt;
+    const p2 = isStart ? otherPt : pointer;
+
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    const newLength = Math.max(1, Math.hypot(dx, dy));
+    const newAngle = Math.atan2(dy, dx) * 180 / Math.PI;
+    const newCenter = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+
+    if (isNaN(newCenter.x) || isNaN(newCenter.y)) return false;
+
+    // Update group properties
+    group.set({
+        left: newCenter.x,
+        top: newCenter.y,
+        angle: newAngle,
+        width: newLength,
+        scaleX: 1, // Ensure scale remains 1
+        scaleY: 1
+    });
+
+    // Use global or imported function
+    const regenFunc = (typeof regenerateParkingInGroup !== 'undefined') ? regenerateParkingInGroup : window.regenerateParkingInGroup;
+    if (regenFunc) {
+        regenFunc(group, state.scale.ratio);
+    }
+
+    // Safety: ensure center is exactly where we calculated
+    group.set({
+        left: newCenter.x,
+        top: newCenter.y
+    });
+
+    group.setCoords();
+    state.canvas.requestRenderAll();
+    return true;
 }

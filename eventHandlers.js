@@ -1,7 +1,10 @@
+//--- START OF FILE eventHandlers.js ---
 
+// MAIN EXECUTION & INITIALIZATION
+// =====================================================================
 import { initCanvas, resetZoom, renderPdfToBackground, zoomCanvas, getCanvas, clearOverlay, setCanvasBackground, getOverlayContext, redrawApartmentPreview, zoomToObject, drawLiveDimension } from './canvasController.js';
 import { resetState, setCurrentLevel, state, setCurrentMode, setScale, toggleAllLayersVisibility, rehydrateProgram } from './state.js';
-import { initDrawingTools, handleDblClick, getSetbackPolygonPoints, handleCanvasMouseMove, clearSetbackGuides, clearEdgeHighlight, updateAlignmentHighlight, resetDrawingState, handleCanvasMouseDown, clearEdgeSnapIndicator, finishScaling, drawSetbackGuides, findSnapPoint, updateSnapIndicators, drawMeasurement, getClickedPlotEdge, findNearestParkingEdge, getNearestEdge, snapObjectToEdge, alignObjectToEdge, updateEdgeHighlight, getClickedPolygonEdge, makeFootprintEditable, makeFootprintUneditable, refreshEditablePolygon, addDrawingPoint, handleAlignmentPointSelect, activateAlignScaleTool, activateScaleGeometryTool, activateMoveOriginTool } from './drawingTools.js';
+import { initDrawingTools, handleDblClick, getSetbackPolygonPoints, handleCanvasMouseMove, clearSetbackGuides, clearEdgeHighlight, updateAlignmentHighlight, resetDrawingState, handleCanvasMouseDown, clearEdgeSnapIndicator, finishScaling, drawSetbackGuides, findSnapPoint, updateSnapIndicators, drawMeasurement, getClickedPlotEdge, findNearestParkingEdge, getNearestEdge, snapObjectToEdge, alignObjectToEdge, updateEdgeHighlight, getClickedPolygonEdge, makeFootprintEditable, makeFootprintUneditable, makeParkingEditable, makeParkingUneditable, refreshEditablePolygon, addDrawingPoint, handleAlignmentPointSelect, activateAlignScaleTool, activateScaleGeometryTool, activateMoveOriginTool } from './drawingTools.js';
 import { regenerateParkingInGroup, generateLinearParking } from './parkingLayoutUtils.js';
 import { init3D, generate3DBuilding, generateOpenScadScript } from './viewer3d.js';
 import { initUI, updateUI, displayHotelRequirements, renderDxfLayersSidebar, placeSelectedComposite, handleConfirmLevelOp, applyLevelVisibility, updateLevelFootprintInfo, renderServiceBlockList, updateSelectedObjectControls, openLevelOpModal, updateParkingDisplay, toggleFloatingPanel, updateDashboard, toggleBlockLock, saveUnitChanges, openNewCompositeEditor, editSelectedComposite, deleteSelectedComposite, saveCompositeChanges, addSubBlockToCompositeEditor, applyScenario, toggleApartmentMode, openEditUnitModal, updateLevelCounts, populateServiceBlocksDropdown, updateProgramUI, updateMixTotal, updateScreenshotGallery, openAreaStatementModal, updateAreaStatementPanel, updateFARDisplay } from './uiController.js';
@@ -10,7 +13,7 @@ import { PROJECT_PROGRAMS, AREA_STATEMENT_DATA, PREDEFINED_BLOCKS, BLOCK_CATEGOR
 import { allocateCountsByPercent, getPolygonProperties, getOffsetPolygon, isPointInRotatedRect, getPolygonFromPolyline } from './utils.js';
 import { layoutFlatsOnPolygon } from './apartmentLayout.js';
 import { handleDxfUpload, assignDxfAsPlot, finalizeDxf, deleteDxf, updateDxfStrokeWidth, exportProjectZIP, importProjectZIP, exportServiceBlocksCSV, importServiceBlocksCSV } from './io.js';
-import { recordAction } from './actionRecorder.js'; 
+import { recordAction } from './actionRecorder.js'; // NEW: for action recorder
 import { updateSubstationSize } from './feasibilityEngine.js';
 
 let dimensionInputEl = null;
@@ -137,6 +140,7 @@ function handleGlobalKeyDown(e) {
         exitAllModes();
     }
 
+
     if (isDrawingPoly && ((e.key >= '0' && e.key <= '9') || e.key === '.')) {
         e.preventDefault();
         showDimensionInput();
@@ -154,14 +158,30 @@ export function setupEventListeners() {
     state.canvas.on('mouse:up', handleMouseUp);
     state.canvas.on('mouse:dblclick', handleDblClick);
     state.canvas.on('after:render', handleAfterRender);
-    state.canvas.on('selection:created', (e) => updateSelectedObjectControls(e.target));
-    state.canvas.on('selection:updated', (e) => updateSelectedObjectControls(e.target));
-    state.canvas.on('selection:cleared', () => updateSelectedObjectControls(null));
+
+    state.canvas.on('selection:created', (e) => {
+        updateSelectedObjectControls(e.target);
+        updateLevelFootprintInfo();
+        updateUI();
+    });
+
+    state.canvas.on('selection:updated', (e) => {
+        updateSelectedObjectControls(e.target);
+        updateLevelFootprintInfo();
+        updateUI();
+    });
+
+    state.canvas.on('selection:cleared', (e) => {
+        updateSelectedObjectControls(null);
+        updateLevelFootprintInfo();
+        updateUI();
+    });
+
     state.canvas.on('object:modified', (e) => {
         updateSelectedObjectControls(e.target);
         handleObjectModified(e);
         updateDashboard();
-        if (e.target.isFootprint) updateLevelFootprintInfo();
+        if (e.target.isFootprint || e.target.isPlot) updateLevelFootprintInfo();
     });
     state.canvas.on('object:scaling', handleObjectScaling);
     state.canvas.on('object:moving', handleObjectMoving);
@@ -177,16 +197,29 @@ export function setupEventListeners() {
 
     safeAddEventListener('floating-header', 'click', toggleFloatingPanel);
 
+    safeAddEventListener('level-footprint-info', 'click', (e) => {
+        const li = e.target.closest('.footprint-list-item');
+        if (!li) return;
+
+        const index = parseInt(li.dataset.index, 10);
+        const footprints = state.levels[state.currentLevel]?.objects.filter(o => o.isFootprint);
+
+        if (footprints && footprints[index]) {
+            const targetPoly = footprints[index];
+            state.canvas.setActiveObject(targetPoly);
+            state.canvas.requestRenderAll();
+            zoomToObject(targetPoly);
+        }
+    });
     document.querySelectorAll('.param-input').forEach(inp => {
         const eventType = inp.type === 'checkbox' ? 'change' : 'input';
         inp.addEventListener(eventType, () => {
             updateLevelCounts();
-            calculateAndApplySetbacks(); 
+            calculateAndApplySetbacks();
             handleCalculate(true);
-            updateDashboard(); 
+            updateDashboard();
         });
     });
-
     safeAddEventListener('toggle-lock-btn', 'click', toggleBlockLock);
     safeAddEventListener('zip-upload', 'change', handleImportZIP);
 
@@ -216,9 +249,10 @@ export function setupEventListeners() {
             state.canvas.setBackgroundColor(e.target.value, state.canvas.renderAll.bind(state.canvas));
         });
     }
-    
-    safeAddEventListener('edit-footprint-btn', 'click', () => enterMode('editingFootprint'));
-    safeAddEventListener('confirm-footprint-btn', 'click', confirmFootprintEdit);
+
+    safeAddEventListener('edit-plot-btn', 'click', () => enterMode('editingPlot'));
+    safeAddEventListener('confirm-plot-edit-btn', 'click', confirmPlotEdit);
+
     safeAddEventListener('delete-footprint-btn', 'click', deleteSelectedObject);
     safeAddEventListener('plan-upload', 'change', handlePlanUpload);
 
@@ -230,17 +264,16 @@ export function setupEventListeners() {
                 e.stopPropagation();
             }, false);
         });
-
         ['dragenter', 'dragover'].forEach(eventName => {
             uploadLabel.addEventListener(eventName, () => {
-                uploadLabel.style.backgroundColor = '#f50057'; 
+                uploadLabel.style.backgroundColor = '#f50057';
                 uploadLabel.style.border = '2px dashed white';
             }, false);
         });
 
         ['dragleave', 'drop'].forEach(eventName => {
             uploadLabel.addEventListener(eventName, () => {
-                uploadLabel.style.backgroundColor = ''; 
+                uploadLabel.style.backgroundColor = '';
                 uploadLabel.style.border = '';
             }, false);
         });
@@ -272,7 +305,8 @@ export function setupEventListeners() {
             enterMode('measuring');
         }
     });
-safeAddEventListener('dxf-measure-btn', 'click', () => {
+
+    safeAddEventListener('dxf-measure-btn', 'click', () => {
         if (state.currentMode === 'measuring') {
             exitAllModes();
         } else {
@@ -305,6 +339,11 @@ safeAddEventListener('dxf-measure-btn', 'click', () => {
     safeAddEventListener('apply-individual-setback-btn', 'click', applyIndividualSetbacks);
     safeAddEventListener('clear-setback-selection-btn', 'click', clearSetbackSelection);
     safeAddEventListener('project-type-select', 'change', handleProjectTypeChange);
+    safeAddEventListener('edit-footprint-btn', 'click', () => enterMode('editingFootprint'));
+    safeAddEventListener('confirm-footprint-edit-btn', 'click', confirmFootprintEdit);
+    safeAddEventListener('lock-level-btn', 'click', toggleLevelLock);
+    safeAddEventListener('edit-parking-btn', 'click', () => enterMode('editingParking'));
+    safeAddEventListener('confirm-parking-edit-btn', 'click', confirmParkingEdit);
 
     safeAddEventListener('view-hotel-reqs-btn', 'click', displayHotelRequirements);
     safeAddEventListener('close-hotel-req-btn', 'click', () => {
@@ -341,6 +380,7 @@ safeAddEventListener('dxf-measure-btn', 'click', () => {
     const blockHeight = document.getElementById('block-height');
     if (blockHeight) blockHeight.addEventListener('change', () => updateBlockDimension('height'));
 
+    // Substation listeners
     safeAddEventListener('substation-tcl', 'input', () => updateSubstationSize(state.canvas.getActiveObject()));
     safeAddEventListener('substation-num-tx', 'input', () => updateSubstationSize(state.canvas.getActiveObject()));
 
@@ -462,18 +502,21 @@ function handleReportClick(e) {
     }
 }
 function handleBalconyClick(pointer) {
-    if (!state.currentApartmentLayout || !state.scale.ratio) return false;
+    const layouts = Array.isArray(state.currentApartmentLayout) ? state.currentApartmentLayout : (state.currentApartmentLayout ? [state.currentApartmentLayout] : []);
 
-    for (const flat of state.currentApartmentLayout.placedFlats) {
-        if (!flat.type.balconyMultiplier || flat.type.balconyMultiplier <= 0) continue;
+    for (const layout of layouts) {
+        if (!layout.placedFlats) continue;
+        for (const flat of layout.placedFlats) {
+            if (!flat.type.balconyMultiplier || flat.type.balconyMultiplier <= 0) continue;
 
-        const balconyWidthPx = (flat.type.frontage / state.scale.ratio) * ((flat.type.balconyCoverage || 80) / 100);
-        const balconyDepthPx = flat.type.balconyMultiplier / state.scale.ratio;
+            const balconyWidthPx = (flat.type.frontage / state.scale.ratio) * ((flat.type.balconyCoverage || 80) / 100);
+            const balconyDepthPx = flat.type.balconyMultiplier / state.scale.ratio;
 
-        if (isPointInRotatedRect(pointer, flat.balconyCenter, balconyWidthPx, balconyDepthPx, flat.angle)) {
-            flat.hasBalcony = !flat.hasBalcony;
-            state.canvas.requestRenderAll();
-            return true; 
+            if (isPointInRotatedRect(pointer, flat.balconyCenter, balconyWidthPx, balconyDepthPx, flat.angle)) {
+                flat.hasBalcony = !flat.hasBalcony;
+                state.canvas.requestRenderAll();
+                return true;
+            }
         }
     }
     return false;
@@ -498,7 +541,7 @@ export function placeServiceBlock(pointer) {
         const rect = new fabric.Rect({ width: blockWidth, height: blockHeight, fill: colors.fill, stroke: colors.stroke, strokeWidth: 2, originX: 'center', originY: 'center', strokeUniform: true });
         rect.setCoords();
         const label = new fabric.Text(blockId, { fontSize: Math.min(blockWidth, blockHeight) * 0.2, fill: '#fff', backgroundColor: 'rgba(0,0,0,0.4)', originX: 'center', originY: 'center' });
-        const lockIcon = new fabric.Text("🔒", { fontSize: Math.min(blockWidth, blockHeight) * 0.2, left: Math.min(blockWidth, blockHeight) * 0.2, originY: 'center', visible: true }); 
+        const lockIcon = new fabric.Text("🔒", { fontSize: Math.min(blockWidth, blockHeight) * 0.2, left: Math.min(blockWidth, blockHeight) * 0.2, originY: 'center', visible: true });
         const group = new fabric.Group([rect, label, lockIcon], {
             left: pointer.x,
             top: pointer.y,
@@ -510,7 +553,7 @@ export function placeServiceBlock(pointer) {
             level: state.currentLevel,
             selectable: true,
             evented: true,
-            lockScalingX: true, 
+            lockScalingX: true,
             lockScalingY: true,
         });
         state.serviceBlocks.push(group);
@@ -557,8 +600,6 @@ export function createCompositeGroup(compositeData, pointer) {
 export function deleteSelectedFootprint() {
     const selected = state.canvas.getActiveObject();
     if (!selected || !selected.isFootprint) return;
-
-    if (state.currentMode === 'editingFootprint') { confirmFootprintEdit(); }
 
     const levelObjects = state.levels[selected.level].objects;
     const index = levelObjects.indexOf(selected);
@@ -624,7 +665,7 @@ function handleImportZIP(e) {
     const file = e.target.files[0];
     if (!file) return;
     importProjectZIP(file, state.canvas, () => {
-        resetState(true); 
+        resetState(true);
 
         let maxId = 0;
         state.canvas.getObjects().forEach(obj => {
@@ -673,7 +714,7 @@ export async function handlePlanUpload(e) {
     const file = e.target.files[0];
     if (!file) return;
 
-    state.originalPlanFile = file; 
+    state.originalPlanFile = file;
     resetState();
 
     const reader = new FileReader();
@@ -741,7 +782,7 @@ export function createFootprintFromPlot() {
     let points = state.plotPolygon.points;
 
     if (state.currentLevel.startsWith('Basement') && state.scale.ratio > 0) {
-        const offsetDist = 1 / state.scale.ratio; 
+        const offsetDist = 1 / state.scale.ratio;
         points = getOffsetPolygon(points, offsetDist);
     }
 
@@ -757,12 +798,69 @@ export function createFootprintFromPlot() {
 export function handleLevelSelect(e) {
     const btn = e.target.closest('button');
     if (btn?.dataset.level) {
-        if (state.currentMode === 'editingFootprint') { confirmFootprintEdit(); }
+        if (['editingPlot', 'editingFootprint'].includes(state.currentMode)) {
+            confirmPlotEdit();
+        }
         setCurrentLevel(btn.dataset.level);
         applyLevelVisibility();
+
+        const currentLevelData = state.levels[state.currentLevel];
+        const isLocked = currentLevelData?.isLocked;
+
+        state.canvas.getObjects().forEach(obj => {
+            if (obj.isFootprint) {
+                if (obj.level === state.currentLevel) {
+                    obj.set({
+                        selectable: !isLocked,
+                        evented: !isLocked,
+                        lockMovementX: false,
+                        lockMovementY: false
+                    });
+                    makeFootprintUneditable(obj);
+                } else {
+                    obj.set({ selectable: false, evented: false });
+                    makeFootprintUneditable(obj);
+                }
+            } else if (obj.isPlot) {
+                makeFootprintUneditable(obj);
+                // The plot should stay locked unless in editingPlot mode
+                if (state.currentMode !== 'editingPlot') {
+                    obj.set({ selectable: false, evented: false });
+                }
+            }
+        });
+        state.canvas.discardActiveObject().renderAll();
+
         updateUI();
         updateLevelFootprintInfo();
     }
+}
+
+export function toggleLevelLock() {
+    const levelName = state.currentLevel;
+    const levelData = state.levels[levelName];
+    if (!levelData) return;
+
+    levelData.isLocked = !levelData.isLocked;
+    const isLocked = levelData.isLocked;
+
+    levelData.objects.forEach(obj => {
+        if (obj.isFootprint) {
+            obj.set({
+                selectable: !isLocked,
+                evented: !isLocked
+            });
+        }
+    });
+
+    const btn = document.getElementById('lock-level-btn');
+    if (btn) {
+        btn.textContent = isLocked ? '🔒 Unlock Level Footprints' : '🔓 Lock Level Footprints';
+        btn.classList.toggle('active', isLocked);
+    }
+
+    state.canvas.discardActiveObject().requestRenderAll();
+    document.getElementById('status-bar').textContent = isLocked ? `Level ${levelName} footprints locked.` : `Level ${levelName} footprints unlocked.`;
 }
 
 export function handleToggleVisibility() {
@@ -833,9 +931,11 @@ export function handlePreviewLayout(event) {
         return;
     }
 
-    const poly = polys[polys.length - 1]; 
     const counts = state.lastCalculatedData.aptCalcs.aptMixWithCounts.reduce((acc, apt) => ({ ...acc, [apt.key]: apt.countPerFloor }), {});
-    state.currentApartmentLayout = layoutFlatsOnPolygon(poly, counts, includeBalconiesInOffset, calcMode, doubleLoaded);
+
+    state.currentApartmentLayout = polys.map(poly =>
+        layoutFlatsOnPolygon(poly, counts, includeBalconiesInOffset, calcMode, doubleLoaded)
+    );
 
     btn.textContent = 'Hide Preview';
     btn.classList.add('active');
@@ -858,9 +958,11 @@ export function refreshApartmentLayout() {
         return;
     }
 
-    const poly = polys[polys.length - 1];
     const counts = state.lastCalculatedData.aptCalcs.aptMixWithCounts.reduce((acc, apt) => ({ ...acc, [apt.key]: apt.countPerFloor }), {});
-    state.currentApartmentLayout = layoutFlatsOnPolygon(poly, counts, includeBalconiesInOffset, calcMode, doubleLoaded);
+
+    state.currentApartmentLayout = polys.map(poly =>
+        layoutFlatsOnPolygon(poly, counts, includeBalconiesInOffset, calcMode, doubleLoaded)
+    );
 
     state.canvas.requestRenderAll();
     document.getElementById('status-bar').textContent = "Layout refreshed successfully.";
@@ -872,7 +974,7 @@ async function checkAndRescalePdf() {
 
     if (currentPdfData && bg && bg.isPdf && bg.renderingScale && state.scale.ratio > 0) {
         const pixelsPerMeter = 1 / state.scale.ratio;
-        const targetPixelsPerMeter = 100; 
+        const targetPixelsPerMeter = 100;
 
         if (pixelsPerMeter < targetPixelsPerMeter) {
             document.getElementById('status-bar').textContent = 'Optimizing plan resolution... Please wait.';
@@ -884,9 +986,7 @@ async function checkAndRescalePdf() {
 
             if (newBgImage) {
                 const correctionFactor = newBgImage.width / bg.width;
-
                 setCanvasBackground(newBgImage);
-
                 const newPixelDistance = state.scale.pixelDistance * correctionFactor;
                 setScale(newPixelDistance, state.scale.realDistance);
             }
@@ -894,18 +994,19 @@ async function checkAndRescalePdf() {
     }
 }
 
+
 export function handleMouseDown(o) {
     const pointer = state.canvas.getPointer(o.e);
 
-    if (state.currentMode === 'editingFootprint') {
-        if (o.target && o.target.isFootprint && !o.transform) {
+    if (['editingPlot', 'editingFootprint'].includes(state.currentMode)) {
+        if (o.target && (o.target.isFootprint || o.target.isPlot) && !o.transform) {
             return;
         }
     }
 
-    if (state.currentApartmentLayout && o.e.button === 0) { 
+    if (state.currentApartmentLayout && o.e.button === 0) {
         if (handleBalconyClick(pointer)) {
-            return; 
+            return;
         }
     }
     if (isMeasuring) {
@@ -917,13 +1018,10 @@ export function handleMouseDown(o) {
             measurePoint1 = clickPoint;
             document.getElementById('status-bar').textContent = 'Mode: Measure. Click end point.';
         } else {
-            const distPixels = Math.hypot(clickPoint.x - measurePoint1.x, clickPoint.y - measurePoint1.y);
-             const ratio = state.scale.ratio > 0 ? state.scale.ratio : 1;
+            const distPixels = Math.hypot(clickPoint.x - measurePoint1.x, clickPoint.y - measurePoint1.y); const ratio = state.scale.ratio > 0 ? state.scale.ratio : 1;
             const distVal = distPixels * ratio;
             const unit = state.scale.ratio > 0 ? 'm' : 'px';
             document.getElementById('status-bar').textContent = `Final Measurement: ${distVal.toFixed(3)} ${unit}`;
-            //const distMeters = distPixels * state.scale.ratio;
-            //document.getElementById('status-bar').textContent = `Final Measurement: ${distMeters.toFixed(3)} m`;
             exitAllModes();
             setCurrentMode(null);
         }
@@ -938,7 +1036,7 @@ export function handleMouseDown(o) {
     }
 
     if (state.currentMode === 'moveOrigin') {
-        return; 
+        return;
     }
 
     if (state.currentMode === 'aligningObject' && objectToAlign) {
@@ -1027,7 +1125,6 @@ export function handleMouseDown(o) {
         state.canvas.add(parkingLine);
     }
 }
-
 export function handleMouseMove(o) {
     const pointer = state.canvas.getPointer(o.e);
     state.lastMousePointer = pointer;
@@ -1044,7 +1141,7 @@ export function handleMouseMove(o) {
     }
     if (state.currentMode === 'drawingParkingOnEdge') {
         const nearestEdge = findNearestParkingEdge(pointer);
-        updateAlignmentHighlight(nearestEdge); 
+        updateAlignmentHighlight(nearestEdge);
         return;
     }
     if (state.currentMode === 'editingSetback') {
@@ -1053,12 +1150,13 @@ export function handleMouseMove(o) {
     }
     const moveResult = handleCanvasMouseMove(o) || {};
     state.livePreviewLayout = moveResult.liveLayoutData;
-    if (moveResult.liveUnitCounts) updateParkingDisplay(moveUnitCounts);
+    if (moveResult.liveUnitCounts) updateParkingDisplay(moveResult.liveUnitCounts);
     if (state.currentMode === 'drawingParking' && parkingLine) {
         parkingLine.set({ x2: pointer.x, y2: pointer.y });
         state.canvas.renderAll();
     }
 }
+
 
 export function handleMouseUp(o) {
     if (state.currentMode === 'drawingGuide' && guideLine) {
@@ -1078,7 +1176,6 @@ export function handleMouseUp(o) {
     }
     clearEdgeSnapIndicator();
 }
-
 export function handleAfterRender() {
     clearOverlay();
 
@@ -1097,7 +1194,6 @@ export function handleAfterRender() {
         drawMeasurement(getOverlayContext(), measurePoint1, endPoint);
     }
 }
-
 export function handleObjectModified(e) {
     const target = e.target;
     if (!target) return;
@@ -1140,13 +1236,11 @@ export function handleObjectModified(e) {
     updateSelectedObjectControls(target);
     state.canvas.requestRenderAll();
 }
-
 export function handleObjectMoving(e) {
     if (e.target.isVertex) return;
     if (document.getElementById('snap-auto-align').checked) { snapObjectToEdge(e.target); }
     else { clearEdgeSnapIndicator(); }
 }
-
 export function handleObjectScaling(e) {
     if (e.target?.isParkingRow) { regenerateParkingInGroup(e.target, state.scale.ratio); updateParkingDisplay(); }
     if (e.target?.isFootprint) { updateLevelFootprintInfo(); }
@@ -1166,7 +1260,6 @@ export function handleProjectTypeChange(e) {
     updateParkingDisplay();
     updateUI();
 }
-
 export function handleMixerInputChange(e) {
     const input = e.target;
     if (input.classList.contains('mix-input')) {
@@ -1179,7 +1272,6 @@ export function handleMixerInputChange(e) {
         updateMixTotal();
     }
 }
-
 export function handleUnitCardClick(e) {
     const card = e.target.closest('.unit-card');
     if (card?.dataset.key) {
@@ -1195,7 +1287,6 @@ export function startAlignment() {
         enterMode('aligningObject');
     }
 }
-
 export function handleEdgeSelection(pointer) {
     const edgeIndex = getClickedPlotEdge(pointer);
     if (edgeIndex === -1) return;
@@ -1214,7 +1305,6 @@ export function handleEdgeSelection(pointer) {
         }
     }
 }
-
 export function applyIndividualSetbacks() {
     const distance = parseFloat(document.getElementById('individual-setback-dist').value);
     const direction = document.getElementById('individual-setback-dir').value;
@@ -1229,22 +1319,20 @@ export function applyIndividualSetbacks() {
         document.getElementById('status-bar').textContent = "Auto-setbacks disabled due to manual override.";
     }
     state.selectedPlotEdges.forEach(index => {
-        state.plotEdgeProperties[index] = { distance, direction, type: edgeType }; 
+        state.plotEdgeProperties[index] = { distance, direction, type: edgeType };
     });
     drawSetbackGuides();
 }
-
 export function clearSetbackSelection() {
     state.selectedPlotEdges = [];
     clearEdgeHighlight();
 }
-
 function enterGroupEditMode() {
     const group = state.canvas.getActiveObject();
     if (!group || !group.isCompositeGroup) return;
 
     window.isEditingGroup = true;
-    window.groupBeingEdited = group; 
+    window.groupBeingEdited = group;
 
     group.toActiveSelection();
     state.canvas.discardActiveObject();
@@ -1253,7 +1341,6 @@ function enterGroupEditMode() {
     updateUI();
     updateSelectedObjectControls(null);
 }
-
 function exitGroupEditMode() {
     if (!window.isEditingGroup || !window.groupBeingEdited) return;
 
@@ -1282,7 +1369,6 @@ function exitGroupEditMode() {
     state.canvas.renderAll();
     updateUI();
 }
-
 export function handleCategoryChange(e) {
     const newCategory = e.target.value;
     const activeObject = state.canvas.getActiveObject();
@@ -1295,7 +1381,7 @@ export function handleCategoryChange(e) {
         if (obj.blockData) {
             obj.blockData.category = newCategory;
         }
-        const rect = obj._objects ? obj._objects[0] : null; 
+        const rect = obj._objects ? obj._objects[0] : null;
         if (rect) {
             rect.set({ fill: colors.fill, stroke: colors.stroke });
         }
@@ -1305,14 +1391,14 @@ export function handleCategoryChange(e) {
         activeObject.forEachObject(subObj => {
             updateObjectCategory(subObj);
         });
-    } else { 
+    } else {
         updateObjectCategory(activeObject);
     }
 
     recordAction('CHANGE_CATEGORY', { objectId: activeObject.blockId, newCategory });
     state.canvas.renderAll();
     renderServiceBlockList();
-    handleCalculate(true); 
+    handleCalculate(true);
 }
 
 function saveAreaStatementChanges() {
@@ -1329,14 +1415,14 @@ function saveAreaStatementChanges() {
     });
     recordAction('SAVE_AREA_OVERRIDES', { overrides: state.manualAreaOverrides });
     document.getElementById('area-statement-modal').style.display = 'none';
-    handleCalculate(true); 
+    handleCalculate(true);
 }
 
 function resetAreaOverrides() {
     if (confirm('Are you sure you want to remove all manual area overrides?')) {
         state.manualAreaOverrides = {};
         recordAction('RESET_AREA_OVERRIDES', {});
-        openAreaStatementModal(); 
+        openAreaStatementModal();
         handleCalculate(true);
     }
 }
@@ -1356,7 +1442,7 @@ function addManualAreaEntry() {
         } else {
             state.manualAreaOverrides[level][type] = value;
         }
-        openAreaStatementModal(); 
+        openAreaStatementModal();
     } else {
         alert('Please fill all fields for the manual entry.');
     }
@@ -1366,11 +1452,13 @@ export function alignCoreElements() {
     const referenceLevel = 'Typical_Floor';
 
     const getCoreBlocks = (level) => {
-        return state.serviceBlocks.filter(b =>
-            b.level === level &&
-            b.blockData &&
-            (b.blockData.name.toLowerCase().includes('lift') || b.blockData.role === 'staircase')
-        );
+        return state.serviceBlocks.filter(b => {
+            if (b.level !== level) return false;
+            if (b.isCompositeGroup) {
+                return b.getObjects().some(sub => sub.blockData && (sub.blockData.name.toLowerCase().includes('lift') || sub.blockData.role === 'staircase'));
+            }
+            return b.blockData && (b.blockData.name.toLowerCase().includes('lift') || b.blockData.role === 'staircase');
+        });
     };
 
     const calculateCentroid = (blocks) => {
@@ -1408,7 +1496,7 @@ export function alignCoreElements() {
         const dx = referenceCentroid.x - levelCentroid.x;
         const dy = referenceCentroid.y - levelCentroid.y;
 
-        if (Math.abs(dx) < 0.1 && Math.abs(dy) < 0.1) return; 
+        if (Math.abs(dx) < 0.1 && Math.abs(dy) < 0.1) return;
 
         levelCoreBlocks.forEach(block => {
             block.set({
@@ -1428,15 +1516,26 @@ export function alignCoreElements() {
         document.getElementById('status-bar').textContent = 'All cores are already aligned.';
     }
 }
-
+// --- Mode Entry/Exit ---
 export function enterMode(mode, data = null) {
-    if (state.currentMode === 'editingFootprint') {
-        confirmFootprintEdit();
+    const prevActiveObj = state.canvas.getActiveObject();
+
+    if (['editingPlot', 'editingFootprint', 'editingParking'].includes(state.currentMode)) {
+        // We use a general confirm for both if needed
+        if (state.currentMode === 'editingPlot') confirmPlotEdit();
+        else if (state.currentMode === 'editingFootprint') confirmFootprintEdit();
+        else confirmParkingEdit();
     }
+
     exitAllModes();
     setCurrentMode(mode);
-    state.canvas.selection = false;
-    state.canvas.discardActiveObject().renderAll();
+
+    // Default canvas selection state for modes
+    if (['measuring', 'editingPlot', 'editingFootprint', 'drawingBuilding', 'drawingLinearBuilding', 'drawingCorridor', 'drawingPlot'].includes(mode)) {
+        state.canvas.selection = false;
+    } else {
+        state.canvas.selection = true;
+    }
 
     if ((mode === 'drawingBuilding' || mode === 'drawingLinearBuilding' || mode === 'drawingCorridor') && state.plotPolygon) drawSetbackGuides();
     if (mode === 'placingCompositeBlock') selectedCompositeBlockData = data;
@@ -1444,24 +1543,11 @@ export function enterMode(mode, data = null) {
         document.getElementById('status-bar').textContent = 'Select a building edge on a valid level (Basement, Ground, Podium) to place parking.';
     }
     if (mode === 'editingSetback') document.getElementById('individual-setback-controls').style.display = 'block';
-    if (mode === 'editingFootprint') {
-        const selected = state.canvas.getActiveObject();
-        const footprintToEdit = (selected && selected.isFootprint) ? selected : state.levels[state.currentLevel]?.objects.find(o => o.isFootprint);
-
-        if (footprintToEdit) {
-            makeFootprintEditable(footprintToEdit);
-            state.canvas.setActiveObject(footprintToEdit);
-            state.canvas.renderAll();
-        } else {
-            document.getElementById('status-bar').textContent = 'No footprint on this level to edit. Please select one or draw one.';
-            exitAllModes();
-        }
-    }
     if (mode === 'aligningObject') {
         if (objectToAlign) objectToAlign.set({ evented: false });
         state.canvas.hoverCursor = 'move';
     }
-   if (mode === 'measuring') {
+    if (mode === 'measuring') {
         isMeasuring = true;
         measurePoint1 = null;
         state.canvas.selection = false;
@@ -1476,20 +1562,53 @@ export function enterMode(mode, data = null) {
         }
     }
 
-    if (!['measuring', 'editingFootprint'].includes(mode)) {
-        state.canvas.selection = true;
+    if (mode === 'editingPlot') {
+        if (state.plotPolygon) {
+            makeFootprintEditable(state.plotPolygon);
+            state.canvas.setActiveObject(state.plotPolygon).renderAll();
+        } else {
+            document.getElementById('status-bar').textContent = 'No plot polygon exists to edit.';
+            exitAllModes();
+        }
+    } else if (mode === 'editingFootprint') {
+        const active = prevActiveObj || state.canvas.getActiveObject();
+        if (active && active.isFootprint) {
+            state.canvas.setActiveObject(active);
+            makeFootprintEditable(active);
+            state.canvas.requestRenderAll();
+        } else {
+            document.getElementById('status-bar').textContent = 'Select a footprint first to edit vertices.';
+            exitAllModes();
+            return;
+        }
+    } else if (mode === 'editingParking') {
+        const active = prevActiveObj || state.canvas.getActiveObject();
+        if (active && active.isParkingRow) {
+            state.canvas.setActiveObject(active);
+            makeParkingEditable(active);
+            state.canvas.requestRenderAll();
+        } else {
+            document.getElementById('status-bar').textContent = 'Select a parking row first to edit handles.';
+            exitAllModes();
+            return;
+        }
     }
     updateUI();
 }
 
 export function exitAllModes() {
-    if (state.currentMode === 'editingFootprint') {
-        const activeObject = state.canvas.getActiveObject();
-        if (activeObject && activeObject.isFootprint) {
-            makeFootprintUneditable(activeObject);
-        }
+    if (state.currentMode === 'editingPlot' && state.plotPolygon) {
+        makeFootprintUneditable(state.plotPolygon);
     }
-  if (state.currentMode === 'measuring') {
+    state.canvas.getObjects().forEach(obj => {
+        if (obj.isFootprint) {
+            makeFootprintUneditable(obj);
+        } else if (obj.isParkingRow) {
+            makeParkingUneditable(obj);
+        }
+    });
+
+    if (state.currentMode === 'measuring') {
         isMeasuring = false;
         measurePoint1 = null;
         clearOverlay();
@@ -1521,6 +1640,7 @@ export function exitAllModes() {
     setCurrentMode(null);
     selectedCompositeBlockData = null;
     state.canvas.selection = true;
+    state.canvas.discardActiveObject();
 
     if (typeof exitAlignmentMode === 'function') {
         exitAlignmentMode();
@@ -1535,9 +1655,32 @@ export function exitAllModes() {
     state.canvas.requestRenderAll();
 }
 
+export function confirmPlotEdit() {
+    if (state.currentMode === 'editingPlot' && state.plotPolygon) {
+        makeFootprintUneditable(state.plotPolygon);
+    }
+    state.canvas.discardActiveObject().renderAll();
+    exitAllModes();
+}
+
 export function confirmFootprintEdit() {
-    const activeObject = state.canvas.getActiveObject();
-    if (activeObject && activeObject.isFootprint) { makeFootprintUneditable(activeObject); }
+    if (state.currentMode === 'editingFootprint') {
+        const active = state.canvas.getActiveObject();
+        if (active && active.isFootprint) {
+            makeFootprintUneditable(active);
+        }
+    }
+    state.canvas.discardActiveObject().renderAll();
+    exitAllModes();
+}
+
+export function confirmParkingEdit() {
+    if (state.currentMode === 'editingParking') {
+        const active = state.canvas.getActiveObject();
+        if (active && active.isParkingRow) {
+            makeParkingUneditable(active);
+        }
+    }
     state.canvas.discardActiveObject().renderAll();
     exitAllModes();
 }
@@ -1553,7 +1696,7 @@ export function handleFinishPolygon(shape, modeOverride = null) {
         if (isLinearFootprint) {
             const avgUnitDepth = state.currentProgram?.unitTypes.reduce((acc, u) => acc + u.depth, 0) / state.currentProgram.unitTypes.length || 14;
             thickness = (avgUnitDepth / state.scale.ratio);
-        } else { 
+        } else {
             const widthMeters = parseFloat(document.getElementById('corridor-width-input').value) || 1.8;
             thickness = widthMeters / state.scale.ratio;
         }
@@ -1573,22 +1716,25 @@ export function handleFinishPolygon(shape, modeOverride = null) {
         state.plotPolygon = finalShape;
         finalShape.set({ fill: 'rgba(0, 0, 255, 0.1)', stroke: 'rgba(0, 0, 255, 0.6)', strokeWidth: 1.5, level: 'Plot', selectable: false, evented: false, isPlot: true, strokeUniform: true });
         state.plotEdgeProperties = finalShape.points.map(() => ({ distance: 5, direction: 'inside', type: 'neighbor' }));
-        calculateAndApplySetbacks(); 
+        state.canvas.add(finalShape); // Add to canvas BEFORE making editable
+        calculateAndApplySetbacks();
     } else if (currentMode === 'drawingBuilding' || isLinearFootprint || isCorridor) {
         const levelData = state.levels[state.currentLevel];
         const footprintProps = {
             fill: isCorridor ? 'rgba(139, 69, 19, 0.4)' : levelData.color,
             stroke: isCorridor ? '#8B4513' : 'red',
             level: state.currentLevel,
-            selectable: false,
+            selectable: true,
             evented: true,
             isFootprint: true,
             strokeUniform: true,
-            isLinearFootprint: isLinearFootprint, 
+            isLinearFootprint: isLinearFootprint,
             isCorridorFootprint: isCorridor
         };
         finalShape.set(footprintProps);
         levelData.objects.push(finalShape);
+        state.canvas.add(finalShape); // Add to canvas BEFORE making editable
+        makeFootprintEditable(finalShape);
         updateLevelFootprintInfo();
 
         if (finalShape.type === 'polygon' && document.getElementById('auto-place-core-check').checked) {
@@ -1604,7 +1750,6 @@ export function handleFinishPolygon(shape, modeOverride = null) {
             }
         }
     }
-    state.canvas.add(finalShape);
 
     if (isLinearFootprint) {
         document.getElementById('previewLayoutBtn').classList.add('active');
@@ -1616,7 +1761,6 @@ export function handleFinishPolygon(shape, modeOverride = null) {
         exitAllModes();
     }
 }
-
 export function handleFinishPolyline(shape, modeOverride = null) {
     let finalShape = shape;
     const currentMode = modeOverride || state.currentMode;
@@ -1634,20 +1778,23 @@ export function handleFinishPolyline(shape, modeOverride = null) {
         state.plotPolygon = finalShape;
         finalShape.set({ fill: 'rgba(0, 0, 255, 0.1)', stroke: 'rgba(0, 0, 255, 0.6)', strokeWidth: 1.5, level: 'Plot', selectable: false, evented: false, isPlot: true, strokeUniform: true });
         state.plotEdgeProperties = finalShape.points.map(() => ({ distance: 5, direction: 'inside' }));
+        state.canvas.add(finalShape); // Add to canvas
     } else if (currentMode === 'drawingBuilding' || isLinearFootprint) {
         const levelData = state.levels[state.currentLevel];
         const footprintProps = {
             fill: levelData.color,
             stroke: 'red',
             level: state.currentLevel,
-            selectable: false,
+            selectable: true,
             evented: true,
             isFootprint: true,
             strokeUniform: true,
-            isLinearFootprint: isLinearFootprint 
+            isLinearFootprint: isLinearFootprint
         };
         finalShape.set(footprintProps);
         levelData.objects.push(finalShape);
+        state.canvas.add(finalShape); // Add to canvas BEFORE making editable
+        makeFootprintEditable(finalShape);
         updateLevelFootprintInfo();
 
         if (finalShape.type === 'polygon' && document.getElementById('auto-place-core-check').checked) {
@@ -1663,7 +1810,6 @@ export function handleFinishPolyline(shape, modeOverride = null) {
             }
         }
     }
-    state.canvas.add(finalShape);
 
     if (isLinearFootprint) {
         document.getElementById('previewLayoutBtn').classList.add('active');

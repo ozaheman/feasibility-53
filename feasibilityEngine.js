@@ -9,18 +9,49 @@ import { RESIDENTIAL_PROGRAM, LEVEL_ORDER, LEVEL_DEFINITIONS, PREDEFINED_COMPOSI
 
 export const getAreaForLevel = (levelName) =>
     state.levels[levelName]?.objects.filter(o => o.isFootprint).reduce((sum, obj) => sum + getPolygonProperties(obj).area, 0) || 0;
-
+// NEW HELPER: Safely flattens all blocks including those inside composite groups, resolving their absolute scales
+function getFlattenedBlocks() {
+    const flat = [];
+    state.serviceBlocks.forEach(b => {
+        if (b.isCompositeGroup) {
+            b.getObjects().forEach(sub => {
+                if (sub.isServiceBlock) {
+                    flat.push({
+                        block: sub,
+                        level: b.level,
+                        absScaleX: sub.scaleX * b.scaleX,
+                        absScaleY: sub.scaleY * b.scaleY,
+                        width: sub.width,
+                        height: sub.height
+                    });
+                }
+            });
+        } else if (b.isServiceBlock) {
+            flat.push({
+                block: b,
+                level: b.level,
+                absScaleX: b.scaleX,
+                absScaleY: b.scaleY,
+                width: b.width,
+                height: b.height
+            });
+        }
+    });
+    return flat;
+}
 export function getAreaOfBlocksByCategory(category, level, multiplier = 1, blockName = null) {
     if (state.scale.ratio === 0) return 0;
     const scaleSq = state.scale.ratio * state.scale.ratio;
-    return state.serviceBlocks
-        .filter(b =>
-            b.level === level &&
-            b.blockData &&
-            b.blockData.category === category &&
-            (!blockName || b.blockData.name.toLowerCase().includes(blockName.toLowerCase()))
+   const flatBlocks = getFlattenedBlocks();
+    
+    return flatBlocks
+        .filter(fb =>
+            fb.level === level &&
+            fb.block.blockData &&
+            fb.block.blockData.category === category &&
+            (!blockName || fb.block.blockData.name.toLowerCase().includes(blockName.toLowerCase()))
         )
-        .reduce((sum, b) => sum + (b.getScaledWidth() * b.getScaledHeight() * scaleSq), 0) * multiplier;
+        .reduce((sum, fb) => sum + (fb.width * fb.absScaleX * fb.height * fb.absScaleY * scaleSq), 0) * multiplier;
 }
 
 /**
@@ -109,17 +140,18 @@ export function performCalculations() {
     const achievedSchoolGfa = getAreaForLevel('School');
     const achievedWarehouseGfa = getAreaForLevel('Warehouse') * (inputs.numWarehouseFloors || 1);
     const achievedLabourCampGfa = getAreaForLevel('LabourCamp');
-
+ // USING FLATTENED BLOCKS INSTEAD OF DIRECT STATE REFERENCE
+    const flatBlocks = getFlattenedBlocks();
     const getBlockDetails = (category, level = null) => {
         let totalArea = 0;
         const details = [];
-        state.serviceBlocks
-            .filter(b => b.blockData && b.blockData.category === category && (!level || b.level === level))
-            .forEach(b => {
-                const area = (b.getScaledWidth() * b.getScaledHeight()) * (state.scale.ratio * state.scale.ratio);
+        flatBlocks
+            .filter(fb => fb.block.blockData && fb.block.blockData.category === category && (!level || fb.level === level))
+            .forEach(fb => {
+                const area = (fb.width * fb.absScaleX * fb.height * fb.absScaleY) * (state.scale.ratio * state.scale.ratio);
                 totalArea += area;
                 details.push({
-                    name: b.blockData.name, area: area, level: b.level
+                    name: fb.block.blockData.name, area: area, level: fb.level
                 });
             });
         return { totalArea, details };
@@ -341,7 +373,8 @@ export function performCalculations() {
         aptCalcs.wingBreakdown = wingCalcs;
     }
 
-    const allLifts = state.serviceBlocks.filter(b => b.blockData && b.blockData.name.toLowerCase().includes('lift'));
+   // USING FLATTENED BLOCKS for Lifts
+    const allLifts = flatBlocks.filter(fb => fb.block.blockData && fb.block.blockData.name.toLowerCase().includes('lift'));
     let lowestGfaLiftLevel = null;
     const gfaCheckOrder = ['Basement_Last', 'Ground_Floor'];
     for (const level of gfaCheckOrder) {
@@ -381,16 +414,17 @@ export function performCalculations() {
         if (multiplier > 0 && (state.levels[levelKey].objects.length > 0 || getBlockDetails('gfa', levelKey).totalArea > 0 || getBlockDetails('service', levelKey).totalArea > 0 || state.manualAreaOverrides[levelKey])) {
 
             const manual = state.manualAreaOverrides[levelKey] || {};
+      // USING FLATTENED BLOCKS for Non-Lift GFA
+            const nonLiftGfaArea = flatBlocks
+                .filter(fb => fb.level === levelKey && fb.block.blockData && fb.block.blockData.category === 'gfa' && !fb.block.blockData.name.toLowerCase().includes('lift'))
+                .reduce((sum, fb) => sum + (fb.width * fb.absScaleX * fb.height * fb.absScaleY * (state.scale.ratio ** 2)), 0);
 
-            const nonLiftGfaArea = state.serviceBlocks
-                .filter(b => b.level === levelKey && b.blockData && b.blockData.category === 'gfa' && !b.blockData.name.toLowerCase().includes('lift'))
-                .reduce((sum, b) => sum + (b.getScaledWidth() * b.getScaledHeight() * (state.scale.ratio ** 2)), 0);
 
             let commonGfaForLevel = nonLiftGfaArea;
             if (levelKey === lowestGfaLiftLevel) {
                 const liftAreaOnLevel = allLifts
                     .filter(l => l.level === levelKey)
-                    .reduce((sum, l) => sum + (l.getScaledWidth() * l.getScaledHeight() * (state.scale.ratio ** 2)), 0);
+                     .reduce((sum, l) => sum + (l.width * l.absScaleX * l.height * l.absScaleY * (state.scale.ratio ** 2)), 0);
                 commonGfaForLevel += liftAreaOnLevel;
             }
 
@@ -595,9 +629,9 @@ export function performCalculations() {
 
         // 6. Specific Hotel Amenities (If Project Type is Hotel, check for special blocks)
         if (state.projectType === 'Hotel') {
-            const getBlockAreaByName = (name) => state.serviceBlocks
-                .filter(b => b.blockData && b.blockData.name.toLowerCase().includes(name.toLowerCase()))
-                .reduce((sum, b) => sum + (b.getScaledWidth() * b.getScaledHeight() * (state.scale.ratio ** 2)), 0);
+            const getBlockAreaByName = (name) => flatBlocks
+                .filter(fb => fb.block.blockData && fb.block.blockData.name.toLowerCase().includes(name.toLowerCase()))
+                .reduce((sum, fb) => sum + (fb.width * fb.absScaleX * fb.height * fb.absScaleY * (state.scale.ratio ** 2)), 0);
 
             const retailArea = areas.achievedRetailGfa + getBlockAreaByName('Retail');
             const officeArea = areas.achievedOfficeGfa + getBlockAreaByName('Office');
@@ -651,21 +685,21 @@ export function performCalculations() {
     const garbageBinsRequired = Math.ceil(totalOccupancy / 100);
 
     const liftsRequired = RESIDENTIAL_PROGRAM.calculateLifts(totalOccupancy, totalFloorsAboveGround);
-    const liftsProvided = state.serviceBlocks.filter(b => b.blockData && b.blockData.name.toLowerCase().includes('lift') &&
-        !b.blockData.name.toLowerCase().includes("lift corridor") &&
-
-        (b.level === lowestGfaLiftLevel)).length;
+  // USING FLATTENED BLOCKS for count
+    const liftsProvided = flatBlocks.filter(fb => fb.block.blockData && fb.block.blockData.name.toLowerCase().includes('lift') &&
+        !fb.block.blockData.name.toLowerCase().includes("lift corridor") &&
+        (fb.level === lowestGfaLiftLevel)).length;
 
     // NEW: Staircase Calculation
     const stairsRequired = state.currentProgram?.calculateStaircases ? state.currentProgram.calculateStaircases(totalOccupancy) : 2;
-    const stairsProvided = state.serviceBlocks.filter(b => b.level === 'Typical_Floor' && b.blockData?.role === 'staircase').length;
+   const stairsProvided = flatBlocks.filter(fb => fb.level === 'Typical_Floor' && fb.block.blockData?.role === 'staircase').length;
 
     const providedBreakdown = [];
     LEVEL_ORDER.forEach(levelKey => {
         const rowsOnLevel = state.parkingRows.filter(r => r.level === levelKey);
         if (rowsOnLevel.length > 0) {
             let multiplier = 0;
-            const levelDef = LEVEL_DEFINITIONS[levelKey];
+           // const levelDef = LEVEL_DEFINITIONS[levelKey];
             if (levelKey === 'Basement') {
                 multiplier = inputs.numBasements || 0;
             } else if (levelKey === 'Basement_Last') {

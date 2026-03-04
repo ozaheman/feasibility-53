@@ -1,3 +1,6 @@
+
+/* --- START OF FILE style.css --- */
+
 :root {
     --primary-color: #3f51b5;
     --secondary-color: #1a237e;
@@ -410,7 +413,6 @@ td {
     font-size: 0.9em;
 }
 
-/* added */
 .zoom-controls button.active {
     background-color: var(--accent-color);
     box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
@@ -700,18 +702,33 @@ td {
     margin-top: 10px;
 }
 
+/* FOOTPRINT LIST INTERACTIVE STYLES */
 #level-footprint-info ul {
     list-style-type: none;
     padding: 0;
     margin: 5px 0 0 0;
 }
 
-#level-footprint-info li {
+.footprint-list-item {
     background-color: #f0f2f5;
-    padding: 4px 8px;
+    padding: 6px 8px;
     border-radius: 3px;
-    margin-bottom: 3px;
+    margin-bottom: 4px;
     font-size: 0.9em;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border-left: 3px solid transparent;
+}
+
+.footprint-list-item:hover {
+    background-color: #e8eaf6;
+    border-left: 3px solid var(--primary-color);
+}
+
+.footprint-list-item.active-footprint-item {
+    background-color: #e3f2fd;
+    border-left: 3px solid #2196F3;
+    font-weight: 500;
 }
 
 .snap-indicator-endpoint {
@@ -856,7 +873,6 @@ td {
 
 .area-level-group h4 {
     grid-column: 1 / -1;
-    /* Span both columns */
     margin-bottom: 5px;
 }
 
@@ -907,7 +923,6 @@ td {
     margin-bottom: 5px;
 }
 
-/* NEW: PDF Layout Controls Styling */
 #pdf-layout-controls {
     font-size: 0.9em;
     margin-top: 10px;
@@ -931,7 +946,6 @@ td {
     margin-bottom: 2px;
 }
 
-/* NEW: Floating Cancel Button for Drawing */
 #cancel-drawing-btn {
     position: absolute;
     z-index: 10002;
@@ -955,9 +969,6 @@ td {
     transform: scale(1.1);
 }
 
-/* *************************************** */
-/* ***** NEW MARKET RATE TABLE STYLES **** */
-/* *************************************** */
 #market-rates-results {
     margin-top: 15px;
     font-size: 0.9em;
@@ -998,9 +1009,6 @@ td {
     font-weight: 500;
 }
 
-/* *************************************** */
-/* ***** NEW COLLAPSIBLE SECTION STYLES ** */
-/* *************************************** */
 p.status-indicator {
     font-size: 0.8em;
     font-style: italic;
@@ -1019,7 +1027,6 @@ p.status-indicator {
     justify-content: space-between;
     align-items: center;
     border-bottom: 2px solid transparent;
-    /* To prevent layout shift */
 }
 
 .collapsible-header.collapsed {
@@ -1044,12 +1051,10 @@ p.status-indicator {
     display: none;
 }
 
-/* Data Source Highlighting for Reports and UI */
 .source-manual,
 input.source-manual {
     font-style: italic;
     color: #007bff !important;
-    /* Blue */
 }
 
 input.source-manual {
@@ -1060,7 +1065,6 @@ input.source-manual {
 input.source-online {
     font-weight: bold;
     color: #28a745 !important;
-    /* Green */
 }
 
 input.source-online {
@@ -1070,7 +1074,6 @@ input.source-online {
 .source-local,
 input.source-local {
     color: #6f42c1 !important;
-    /* Purple */
 }
 
 input.source-local {
@@ -1079,7 +1082,6 @@ input.source-local {
 
 .source-auto {
     color: #333;
-    /* Default */
 }
 
 @media print {
@@ -1100,17 +1102,12 @@ input.source-local {
     }
 }
 
-/* Area Statement Modal Styles */
 #area-statement-modal .modal-content.wide {
     max-height: 90vh;
-    /* Prevent modal from exceeding viewport */
     overflow-y: auto;
-    /* Enable vertical scroll */
     padding-right: 10px;
-    /* Avoid content hiding behind scrollbar */
 }
 
-/* Hidden utility class */
 .hidden {
     display: none !important;
 }

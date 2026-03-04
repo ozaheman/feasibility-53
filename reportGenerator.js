@@ -1,4 +1,3 @@
-//--- START OF FILE reportGenerator.js ---
 
 //--- START OF FILE reportGenerator.js ---
 
@@ -10,7 +9,7 @@ import { applyLevelVisibility } from './uiController.js';
 import { redrawApartmentPreview, clearOverlay } from './canvasController.js';
 import { LOGO_BASE64 } from './logo_base64.js';
 import { WM_BASE64 } from './wm_base64.js';
-// Helper to wrap value in a span with source class
+
 function formatValue(value, source, formatter = f) {
     const className = `source-${source || 'auto'}`;
     return `<span class="${className}">${formatter(value)}</span>`;
@@ -19,16 +18,13 @@ function formatValue(value, source, formatter = f) {
 export function generateReport(isDetailed = false) {
     const calculatedData = performCalculations();
     if (!calculatedData) { return null; }
-    // NEW: Gather cost parameters from the UI
     const costParams = {};
     document.querySelectorAll('.cost-param-input').forEach(input => {
         costParams[input.id] = parseFloat(input.value) || 0;
     });
-    // NEW: Check the state of the toggles
     const includeCost = document.getElementById('toggle-cost-analysis').checked;
     const includeBuying = document.getElementById('toggle-revenue-buying').checked;
     const includeRenting = document.getElementById('toggle-revenue-renting').checked;
-    // --- MODIFICATION START: Check for new retail-specific toggles ---
     const includeRetailBuying = document.getElementById('toggle-revenue-buying-retail')?.checked ?? true;
     const includeOfficeBuying = document.getElementById('toggle-revenue-buying-office')?.checked ?? true;
     const includeRetailRenting = document.getElementById('toggle-revenue-renting-retail')?.checked ?? true;
@@ -36,7 +32,6 @@ export function generateReport(isDetailed = false) {
     const reportHTML = isDetailed
         ? generateDetailedReportHTML(calculatedData, costParams, includeCost, includeBuying, includeRenting, includeRetailBuying, includeRetailRenting, includeOfficeBuying, includeOfficeRenting)
         : generateSummaryReportHTML(calculatedData);
-    //const reportHTML = isDetailed ? generateDetailedReportHTML(calculatedData) : generateSummaryReportHTML(calculatedData);
     return { data: calculatedData, html: reportHTML };
 }
 
@@ -46,7 +41,6 @@ export function generateSummaryReportHTML(data) {
     const { inputs, areas, aptCalcs, hotelCalcs, schoolCalcs, labourCampCalcs, summary, parking, lifts, staircases, levelBreakdown } = data;
     const gfaSurplus = inputs.allowedGfa - summary.totalGfa;
 
-    // Helper function to generate floor numbers (same as detailed report)
     const getFloorNumbers = (levelKey, multiplier) => {
         const floorNumberMap = {
             'Basement': () => {
@@ -131,8 +125,6 @@ export function generateSummaryReportHTML(data) {
     const typicalFootprintArea = state.levels['Typical_Floor'].objects.reduce((sum, obj) => sum + getPolygonProperties(obj).area, 0);
     const typicalFloorCoverage = plotArea > 0 ? (typicalFootprintArea / plotArea) * 100 : 0;
 
-
-    // --- Logic for expandable common area (GFA) breakdown ---
     const aggregatedGFAItems = {};
     summary.commonAreaDetails.forEach(item => {
         const key = `${item.name}_${item.level}_${item.area.toFixed(2)}`;
@@ -173,25 +165,40 @@ export function generateSummaryReportHTML(data) {
     });
     commonAreaDetailsHTML += `</tbody></table></td></tr>`;
 
-    // --- Logic for expandable Built-Up Area (BUA) breakdown ---
     const buaComponents = { Basement: [], Ground_Floor: [], Mezzanine: [], Podium: [], Typical_Floor: [], Roof: [] };
 
-    // 1. Aggregate Service Blocks
+    // 1. Aggregate Service Blocks (SAFE FLATTENING)
     const serviceBlocksAggregated = {};
-    state.serviceBlocks.filter(b => b.blockData.category === 'service').forEach(block => {
-        const area = (block.getScaledWidth() * block.getScaledHeight()) * (state.scale.ratio * state.scale.ratio);
-        const key = `${block.blockData.name}_${block.level}_${area.toFixed(2)}`;
+    const flatBlocks = [];
+    state.serviceBlocks.forEach(b => {
+        if (b.isCompositeGroup) {
+            b.getObjects().forEach(sub => {
+                if (sub.isServiceBlock) flatBlocks.push({ block: sub, parent: b });
+            });
+        } else if (b.isServiceBlock) {
+            flatBlocks.push({ block: b, parent: null });
+        }
+    });
+
+    flatBlocks.filter(fb => fb.block.blockData && fb.block.blockData.category === 'service').forEach(fb => {
+        const { block, parent } = fb;
+        const scaleX = parent ? block.scaleX * parent.scaleX : block.scaleX;
+        const scaleY = parent ? block.scaleY * parent.scaleY : block.scaleY;
+        const area = (block.width * scaleX * block.height * scaleY) * (state.scale.ratio * state.scale.ratio);
+        const level = parent ? parent.level : block.level;
+        
+        const key = `${block.blockData.name}_${level}_${area.toFixed(2)}`;
         if (serviceBlocksAggregated[key]) {
             serviceBlocksAggregated[key].qnty++;
         } else {
-            serviceBlocksAggregated[key] = { name: block.blockData.name, level: block.level, singleArea: area, qnty: 1 };
+            serviceBlocksAggregated[key] = { name: block.blockData.name, level: level, singleArea: area, qnty: 1 };
         }
     });
+
     Object.values(serviceBlocksAggregated).forEach(item => {
         if (buaComponents[item.level]) buaComponents[item.level].push(item);
     });
 
-    // 2. Add Parking, Balconies, and Terraces from levelBreakdown
     Object.keys(levelBreakdown).forEach(levelKey => {
         const breakdown = levelBreakdown[levelKey];
         if (buaComponents[levelKey]) {
@@ -222,15 +229,12 @@ export function generateSummaryReportHTML(data) {
             items.forEach(item => {
                 let qnty = item.qnty;
                 let totalArea;
-                // For per-level items like parking, the quantity is the floor multiplier
                 if (item.name.startsWith('Parking Area')) {
                     qnty = multiplier;
                     totalArea = item.singleArea * qnty;
                 } else {
-                    // For other items, multiply by both quantity and number of floors
                     totalArea = item.singleArea * qnty * multiplier;
                 }
-                // Total area = Single Area × Quantity × Number of Floors
                 const totalAreaFt2 = totalArea * 10.7639;
                 buaDetailsHTML += `<tr><td>&nbsp;&nbsp;&nbsp;- ${item.name}</td><td>${f(item.singleArea)}</td><td>${fInt(qnty)}</td><td>${fInt(multiplier)}</td><td>${f(totalArea)}</td><td>${f(totalAreaFt2)}</td></tr>`;
             });
@@ -239,9 +243,7 @@ export function generateSummaryReportHTML(data) {
         }
     });
     buaDetailsHTML += `</tbody></table></td></tr>`;
-    // --- End of BUA logic ---
 
-    // --- Logic for expandable Parking Provided breakdown ---
     let parkingDetailsHTML = `<tr id="parking-details-table" style="display: none;"><td colspan="4" style="padding: 0;">
         <table class="report-table nested-table">
             <thead><tr><th>Level</th><th>Count per Floor</th><th>Multiplier</th><th>Total Count</th></tr></thead>
@@ -255,7 +257,6 @@ export function generateSummaryReportHTML(data) {
         parkingDetailsHTML += `<tr><td colspan="4" style="text-align:center; color:#888;">[No Parking Provided]</td></tr>`;
     }
     parkingDetailsHTML += `</tbody></table></td></tr>`;
-    // --- End of Parking logic ---
 
     let wingBreakdownHTML = '';
     if (aptCalcs.wingBreakdown && aptCalcs.wingBreakdown.length > 0) {
@@ -280,24 +281,14 @@ export function generateSummaryReportHTML(data) {
             <tr><th>Description</th><th>Required</th><th>Provided</th></tr>
             <tr><td>Total Play Area  (sqm)</td><td>${f(schoolCalcs.playAreaRequired)}</td><td class="${schoolCalcs.playAreaProvided >= schoolCalcs.playAreaRequired ? 'surplus' : 'deficit'}">${f(schoolCalcs.playAreaProvided)}</td></tr>
             <tr><td>Covered Play Area  (sqm)</td><td>${f(schoolCalcs.coveredPlayAreaRequired)}</td><td class="${schoolCalcs.coveredPlayAreaProvided >= schoolCalcs.coveredPlayAreaRequired ? 'surplus' : 'deficit'}">${f(schoolCalcs.coveredPlayAreaProvided)}</td></tr>
-            
              <tr><td>Car Parking</td><td>${fInt(schoolCalcs.parkingCarReq)}</td><td>-</td></tr>
             <tr><td>Bus Parking</td><td>${fInt(schoolCalcs.parkingBusReq)}</td><td>-</td></tr>
             <tr><td>Toilets (Students)</td><td>${fInt(schoolCalcs.toiletsStudents)}</td><td>-</td></tr>
             <tr><td>Toilets (Staff)</td><td>${fInt(schoolCalcs.toiletsStaff)}</td><td>-</td></tr>
             <tr><td>Garbage (kg)</td><td>${fInt(schoolCalcs.garbageRequiredKg)}</td><td>-</td></tr>
             <tr class="total-row"><td>Dumpsters</td><td>${fInt(schoolCalcs.garbageContainers)}</td><td>-</td></tr>
-            
-        
         </table>`;
     }
-
-    /* </table>
-       <table class="report-table"><tr class="section-header"><td colspan="2">School Garbage Calculation</td></tr>
-           <tr><td>Basis</td><td>12 Kgs / 100 SQM of GFA</td></tr>
-           <tr><td>Total GFA (Classroom + Admin)</td><td>${f(schoolCalcs.totalClassroomArea + schoolCalcs.adminArea)} m²</td></tr>
-           <tr class="total-row"><td>Total Garbage</td><td>${f(schoolCalcs.garbageRequired.totalKg, 0)} Kgs</td></tr>
-           <tr class="grand-total-row"><td>Dumpsters Required</td><td>${fInt(schoolCalcs.garbageRequired.containers)} x 2.5 CuM</td></tr>  */
 
     let labourCampReportHTML = '';
     if (labourCampCalcs) {
@@ -368,7 +359,6 @@ export function generateSummaryReportHTML(data) {
         ${(() => {
             let levelBreakdownRows = '';
             let totalLevelGfa = 0;
-            const plotAreaM2 = (state.plotPolygon ? getPolygonProperties(state.plotPolygon).area : 0);
             LEVEL_ORDER.forEach(levelKey => {
                 const breakdown = levelBreakdown[levelKey];
                 if (!breakdown || (breakdown.multiplier === 0)) return;
@@ -400,16 +390,10 @@ export function generateSummaryReportHTML(data) {
 
 export function generateDetailedReportHTML(data, costParams, includeCost, includeBuying, includeRenting, includeRetailBuying, includeRetailRenting, includeOfficeBuying, includeOfficeRenting) {
     if (!data) return '<p>Calculation failed. Please check inputs and drawings.</p>';
-    //const { levelBreakdown, summary } = data;
     const { levelBreakdown, summary, aptCalcs, hotelCalcs, schoolCalcs, labourCampCalcs, areas, inputs } = data;
     const SQFT_CONVERSION = 10.7639;
-
-    // Calculate plot area for ratio calculations
     const plotAreaM2 = (state.plotPolygon ? getPolygonProperties(state.plotPolygon).area : 0);
 
-    /*  const totals = { sellableGfa: 0, commonGfa: 0, service: 0, parking: 0, balconyTerrace: 0, total: 0 }; */
-
-    // Helper function to generate floor numbers
     const getFloorNumbers = (levelKey, multiplier) => {
         if (multiplier <= 0) return '';
 
@@ -484,7 +468,6 @@ export function generateDetailedReportHTML(data, costParams, includeCost, includ
     };
 
     let levelRows = '';
-    // NEW: Calculate BUA for different cost zones
     let basementBua = 0;
     let groundBua = 0;
     let upperBua = 0;
@@ -501,13 +484,12 @@ export function generateDetailedReportHTML(data, costParams, includeCost, includ
         }
         const displayLevelName = `${levelName} ${breakdown.multiplier > 1 ? `(x${breakdown.multiplier})` : ''}`;
 
-        const floorNumbers = getFloorNumbers(levelKey);
+        const floorNumbers = getFloorNumbers(levelKey, breakdown.multiplier);
         const gfaForLevel = (breakdown.sellableGfa.value + breakdown.commonGfa.value) * breakdown.multiplier;
         const totalAllowed = inputs.allowedGfa || 0;
         const ratio = totalAllowed > 0 ? ((gfaForLevel / totalAllowed) * 100).toFixed(2) : 0;
         totalGfa += gfaForLevel;
 
-        // Categorize BUA for cost calculation
         const totalBuaForLevel = breakdown.total;
         if (levelKey.includes('Basement')) {
             basementBua += totalBuaForLevel;
@@ -542,10 +524,8 @@ export function generateDetailedReportHTML(data, costParams, includeCost, includ
         const totalConstructionCost = costBasement + costGround + costUpper;
 
         const consultancyFee = totalConstructionCost * (costParams['cost-fee-consultancy'] / 100);
-        const plotAreaM2 = (state.plotPolygon ? getPolygonProperties(state.plotPolygon).area : 0);
         const plotAreaSqft = plotAreaM2 * SQFT_CONVERSION;
         const landCost = plotAreaSqft * SQFT_CONVERSION * costParams['cost-land'];
-        //const landCost = (summary.totalGfa * SQFT_CONVERSION) * costParams['cost-land'];
         const municipalCharges = (summary.totalBuiltup * SQFT_CONVERSION) * costParams['cost-municipal'];
         const electricalCost = costParams['cost-electrical'];
         const soilCost = costParams['cost-soil'];
@@ -578,7 +558,7 @@ export function generateDetailedReportHTML(data, costParams, includeCost, includ
             const { source, ...marketRates } = state.lastMarketRates;
             let totalRevenue = 0;
             let revenueRows = '';
-            // Residential Revenue
+            
             if (state.projectType === 'Residential' && aptCalcs) {
                 aptCalcs.aptMixWithCounts.forEach(apt => {
                     const marketData = marketRates[apt.key];
@@ -590,14 +570,12 @@ export function generateDetailedReportHTML(data, costParams, includeCost, includ
                 });
             }
 
-            // Office & Retail (Common)
             if (includeOfficeBuying && areas.achievedOfficeGfa > 0 && marketRates.office) {
                 const officeGfaSqft = areas.achievedOfficeGfa * SQFT_CONVERSION;
                 const revenue = officeGfaSqft * marketRates.office.buy;
                 totalRevenue += revenue;
                 revenueRows += `<tr><td>Office Space</td><td>${fInt(officeGfaSqft)} sqft</td><td>${formatValue(marketRates.office.buy, source, fInt)} /sqft</td><td>${fInt(revenue)}</td></tr>`;
             }
-            // --- MODIFICATION START ---
             if (includeRetailBuying && areas.achievedRetailGfa > 0 && marketRates.retail) {
                 const retailGfaSqft = areas.achievedRetailGfa * SQFT_CONVERSION;
                 const revenue = retailGfaSqft * marketRates.retail.buy;
@@ -605,8 +583,6 @@ export function generateDetailedReportHTML(data, costParams, includeCost, includ
                 revenueRows += `<tr><td>Retail Space</td><td>${fInt(retailGfaSqft)} sqft</td><td>${formatValue(marketRates.retail.buy, source, fInt)} /sqft</td><td>${fInt(revenue)}</td></tr>`;
             }
 
-
-            // Warehouse & Labour Camp
             if (state.projectType === 'Warehouse' && areas.achievedWarehouseGfa > 0 && marketRates.warehouse) {
                 const whGfaSqft = areas.achievedWarehouseGfa * SQFT_CONVERSION;
                 const revenue = whGfaSqft * marketRates.warehouse.buy;
@@ -618,7 +594,6 @@ export function generateDetailedReportHTML(data, costParams, includeCost, includ
                 totalRevenue += revenue;
                 revenueRows += `<tr><td>Labour Camp</td><td>${fInt(aptCalcs.totalBeds)} beds</td><td>${fInt(marketRates.labour_camp.buy)} /bed</td><td>${fInt(revenue)}</td></tr>`;
             }
-
 
             const netProfit = totalRevenue - totalProjectCost;
             const profitMargin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
@@ -647,7 +622,6 @@ export function generateDetailedReportHTML(data, costParams, includeCost, includ
             let totalAnnualRent = 0;
             let rentRows = '';
 
-            // Residential
             if (state.projectType === 'Residential' && aptCalcs) {
                 aptCalcs.aptMixWithCounts.forEach(apt => {
                     const marketData = marketRates[apt.key];
@@ -664,8 +638,6 @@ export function generateDetailedReportHTML(data, costParams, includeCost, includ
                 totalAnnualRent += rent;
                 rentRows += `<tr><td>Office Space</td><td>${fInt(officeGfaSqft)} sqft</td><td>${formatValue(marketRates.office.rent, source, fInt)} /sqft/yr</td><td>${fInt(rent)}</td></tr>`;
             }
-            // Office & Retail
-            //if (areas.achievedOfficeGfa > 0 && marketRates.office) { /* ... same logic ... */ }
             if (includeRetailRenting && areas.achievedRetailGfa > 0 && marketRates.retail) {
                 const retailGfaSqft = areas.achievedRetailGfa * SQFT_CONVERSION;
                 const rent = retailGfaSqft * marketRates.retail.rent;
@@ -673,7 +645,6 @@ export function generateDetailedReportHTML(data, costParams, includeCost, includ
                 rentRows += `<tr><td>Retail Space</td><td>${fInt(retailGfaSqft)} sqft</td><td>${formatValue(marketRates.retail.rent, source, fInt)} /sqft/yr</td><td>${fInt(rent)}</td></tr>`;
             }
 
-            // Warehouse & Labour Camp
             if (state.projectType === 'Warehouse' && areas.achievedWarehouseGfa > 0 && marketRates.warehouse) {
                 const whGfaSqft = areas.achievedWarehouseGfa * SQFT_CONVERSION;
                 const rent = whGfaSqft * marketRates.warehouse.rent;
@@ -823,13 +794,11 @@ export async function exportReportAsPDF() {
         return;
     }
 
-    // Get new layout values from UI
     const marginTop = parseFloat(document.getElementById('pdf-margin-top').value) || 30;
     const marginBottom = parseFloat(document.getElementById('pdf-margin-bottom').value) || 20;
     const thumbCols = parseInt(document.getElementById('pdf-thumb-cols').value) || 2;
     const thumbRows = parseInt(document.getElementById('pdf-thumb-rows').value) || 3;
 
-    // Create a clone to modify for PDF export without affecting the on-screen view
     const reportClone = reportContainer.cloneNode(true);
 
     if (pdfMode === 'brief') {
@@ -845,7 +814,6 @@ export async function exportReportAsPDF() {
 
     const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
 
-    // NEW: Embed scale information in metadata for automated reinstatement on re-import
     if (state.scale && state.scale.pixels > 0) {
         doc.setProperties({
             subject: `SCALE:${state.scale.pixels}|${state.scale.meters}`

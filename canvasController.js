@@ -4,18 +4,18 @@
 
 // MODULE 4: CANVAS CONTROLLER (canvasController.js equivalent)
 // =====================================================================
-import { resetState,state,setCurrentMode,setScale   } from './state.js';
+import { resetState, state, setCurrentMode, setScale } from './state.js';
 import { updateDashboard, updateSelectedObjectControls, updateLevelFootprintInfo } from './uiController.js';
-import { handleMouseDown,handleMouseMove } from './eventHandlers.js';
- import { handleDblClick } from './drawingTools.js';
-let overlayCanvas,overlayCtx;
+import { handleMouseDown, handleMouseMove } from './eventHandlers.js';
+import { handleDblClick } from './drawingTools.js';
+let overlayCanvas, overlayCtx;
 
-export function initCanvas(canvasId,overlayId) {
+export function initCanvas(canvasId, overlayId) {
     const wrapper = document.querySelector('.canvas-container-wrapper');
     const canvasEl = document.getElementById(canvasId);
     canvasEl.width = wrapper.clientWidth * 2;
     canvasEl.height = (wrapper.clientWidth / 1.64) * 2;
-  
+
     state.canvas = new fabric.Canvas(canvasId, {
         selection: true,
         preserveObjectStacking: true
@@ -49,12 +49,12 @@ export function clearOverlay() {
 }
 export function getOverlayContext() { return overlayCtx; }
 export function clearCanvasBackground() {
-     state.canvas.setBackgroundImage(null, state.canvas.renderAll.bind(state.canvas));
-     state.canvas.setWidth(800).setHeight(600);
-     syncOverlayCanvasSize();
+    state.canvas.setBackgroundImage(null, state.canvas.renderAll.bind(state.canvas));
+    state.canvas.setWidth(800).setHeight(600);
+    syncOverlayCanvasSize();
 }
 export function setCanvasBackground(source) {
-    if (!source) return; 
+    if (!source) return;
 
     if (typeof source === 'string') {
         fabric.Image.fromURL(source, (img) => {
@@ -66,12 +66,12 @@ export function setCanvasBackground(source) {
 }
 
 function fitAndSetBg(fabricImage) {
-    if (!fabricImage) return; 
+    if (!fabricImage) return;
 
     const mainContent = document.querySelector('.main-content');
     const maxWidth = mainContent.clientWidth * 0.95;
     const maxHeight = (window.innerHeight - 150) * 0.9;
-    
+
     if (!fabricImage.width || !fabricImage.height) return;
 
     const scaleFactor = Math.min(maxWidth / fabricImage.width, maxHeight / fabricImage.height, 1);
@@ -79,7 +79,7 @@ function fitAndSetBg(fabricImage) {
     state.canvas.setWidth(fabricImage.width * scaleFactor);
     state.canvas.setHeight(fabricImage.height * scaleFactor);
     syncOverlayCanvasSize();
-    
+
     fabricImage.set({
         scaleX: scaleFactor,
         scaleY: scaleFactor
@@ -91,7 +91,7 @@ function fitAndSetBg(fabricImage) {
 export async function renderPdfToBackground(pdfData, pageNum, renderScale = 2.0) {
     try {
         if (!pdfData) return null;
-       const pdf = await pdfjsLib.getDocument(pdfData.slice(0)).promise;
+        const pdf = await pdfjsLib.getDocument(pdfData.slice(0)).promise;
         if (pageNum > pdf.numPages || pageNum < 1) {
             document.getElementById('status-bar').textContent = `Error: Page ${pageNum} does not exist.`;
             return null;
@@ -103,7 +103,7 @@ export async function renderPdfToBackground(pdfData, pageNum, renderScale = 2.0)
         tempCanvas.height = viewport.height;
 
         await page.render({ canvasContext: tempCanvas.getContext('2d'), viewport: viewport }).promise;
-        
+
         return new Promise(resolve => {
             fabric.Image.fromURL(tempCanvas.toDataURL(), (img) => {
                 if (img) {
@@ -121,27 +121,27 @@ export async function renderPdfToBackground(pdfData, pageNum, renderScale = 2.0)
     }
 }
 export function zoomCanvas(zoomFactor) {
-    const newZoom =  state.canvas.getZoom() * zoomFactor;
-     state.canvas.zoomToPoint(new fabric.Point( state.canvas.width / 2,  state.canvas.height / 2), newZoom);
+    const newZoom = state.canvas.getZoom() * zoomFactor;
+    state.canvas.zoomToPoint(new fabric.Point(state.canvas.width / 2, state.canvas.height / 2), newZoom);
 }
 export function zoomToObject(targetObject) {
     if (!targetObject) return;
     const br = targetObject.getBoundingRect();
-    const zoomX =  state.canvas.width / br.width * 0.9;
-    const zoomY =  state.canvas.height / br.height * 0.9;
+    const zoomX = state.canvas.width / br.width * 0.9;
+    const zoomY = state.canvas.height / br.height * 0.9;
     const newZoom = Math.min(zoomX, zoomY);
-     state.canvas.setZoom(newZoom);
+    state.canvas.setZoom(newZoom);
     const center = targetObject.getCenterPoint();
-    const vpt =  state.canvas.viewportTransform;
-    vpt[4] = ( state.canvas.width / 2) - center.x * newZoom;
-    vpt[5] = ( state.canvas.height / 2) - center.y * newZoom;
-     state.canvas.requestRenderAll();
+    const vpt = state.canvas.viewportTransform;
+    vpt[4] = (state.canvas.width / 2) - center.x * newZoom;
+    vpt[5] = (state.canvas.height / 2) - center.y * newZoom;
+    state.canvas.requestRenderAll();
 }
 export function resetZoom() {
-     state.canvas.setZoom(1);
-     state.canvas.viewportTransform[4] = 0;
-     state.canvas.viewportTransform[5] = 0;
-     state.canvas.requestRenderAll();
+    state.canvas.setZoom(1);
+    state.canvas.viewportTransform[4] = 0;
+    state.canvas.viewportTransform[5] = 0;
+    state.canvas.requestRenderAll();
 }
 export function handleMouseWheelZoom(opt) {
     opt.e.preventDefault();
@@ -151,7 +151,7 @@ export function handleMouseWheelZoom(opt) {
     zoom *= 0.999 ** delta;
     if (zoom > 20) zoom = 20;
     if (zoom < 0.1) zoom = 0.1;
-     state.canvas.zoomToPoint({ x: opt.e.offsetX, y: opt.e.offsetY }, zoom);
+    state.canvas.zoomToPoint({ x: opt.e.offsetX, y: opt.e.offsetY }, zoom);
 }
 export function getCanvas() { return state.canvas; }
 
@@ -163,10 +163,10 @@ export function drawLiveDimension(p1, p2) {
     if (distPixels < 2) return;
     const ratio = state.scale.ratio > 0 ? state.scale.ratio : 1;
     const unit = state.scale.ratio > 0 ? 'm' : 'px';
-     const distMeters = distPixels * ratio;
+    const distMeters = distPixels * ratio;
     const text = `${distMeters.toFixed(2)} ${unit}`;
     //const distMeters = distPixels * state.scale.ratio;
-   // const text = `${distMeters.toFixed(2)} m`;
+    // const text = `${distMeters.toFixed(2)} m`;
 
     const midX = (p1.x + p2.x) / 2;
     const midY = (p1.y + p2.y) / 2;
@@ -178,25 +178,25 @@ export function drawLiveDimension(p1, p2) {
 
     const textHeight = 14 / state.canvas.getZoom();
     const padding = 5 / state.canvas.getZoom();
-    
+
     overlayCtx.font = `${14 / state.canvas.getZoom()}px sans-serif`;
     const textMetrics = overlayCtx.measureText(text);
     const textWidth = textMetrics.width;
 
     overlayCtx.translate(midX, midY);
     overlayCtx.rotate(angle);
-    
+
     if (angle < -Math.PI / 2 || angle > Math.PI / 2) {
         overlayCtx.rotate(Math.PI);
     }
-    
+
     const textYOffset = -textHeight / 2 - padding * 2;
 
     overlayCtx.fillStyle = 'rgba(0, 0, 0, 0.75)';
     const bgWidth = textWidth + 2 * padding;
     const bgHeight = textHeight + 2 * padding;
     overlayCtx.fillRect(-bgWidth / 2, textYOffset - bgHeight / 2, bgWidth, bgHeight);
-    
+
     overlayCtx.fillStyle = 'white';
     overlayCtx.textAlign = 'center';
     overlayCtx.textBaseline = 'middle';
@@ -205,9 +205,15 @@ export function drawLiveDimension(p1, p2) {
 }
 
 export function redrawApartmentPreview(layoutData) {
-    //console.log('redrawApartmentPreview');
-    //console.log(layoutData);
-    const vpt =  state.canvas.viewportTransform;
+    if (!layoutData) return;
+
+    // Handle array of layouts recursively
+    if (Array.isArray(layoutData)) {
+        layoutData.forEach(layout => redrawApartmentPreview(layout));
+        return;
+    }
+
+    const vpt = state.canvas.viewportTransform;
     overlayCtx.save();
     overlayCtx.setTransform(vpt[0], vpt[1], vpt[2], vpt[3], vpt[4], vpt[5]);
     const { placedFlats, innerCorridorPolyPoints, outerCorridorPolyPoints, corridorPoly, staircaseValidation } = layoutData;
@@ -250,7 +256,7 @@ export function redrawApartmentPreview(layoutData) {
     }
 
     if (staircaseValidation && staircaseValidation.message) {
-         document.getElementById('status-bar').textContent = `Staircase Validation: ${staircaseValidation.message}`;
+        document.getElementById('status-bar').textContent = `Staircase Validation: ${staircaseValidation.message}`;
     }
 
     for (const flat of placedFlats) {
@@ -279,7 +285,7 @@ export function redrawApartmentPreview(layoutData) {
             overlayCtx.strokeRect(-balconyWidthPx / 2, -balconyDepthPx / 2, balconyWidthPx, balconyDepthPx);
             overlayCtx.restore();
         }
-        
+
         // Draw the normal vector for debugging/visualization
         const normalLength = 20 / state.canvas.getZoom();
         const normalX = -Math.sin(flat.angle) * normalLength;
